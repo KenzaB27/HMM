@@ -29,37 +29,32 @@ pi = matrices[2][0]
 deltas = [[0 for i in range(N)] for j in range(T)]
 maxIndexes = [[-1 for i in range(N)] for j in range(T)]
 
-# compute delta0
+delta = [[0 for i in range(N)] for j in range(T)]
 for i in range(N):
-    delta = pi[i]*B[i][observations[0]]
-    deltas[0][i] = (math.log(pi[i]) if pi[i] > 0 else pi[i]) + \
-        (math.log(B[i][observations[0]]) if B[i]
-         [observations[0]] > 0 else B[i][observations[0]])
-    # deltas[0][i] = delta
+    delta[0][i] = B[i][observations[0]] * pi[i]
 
-# compute deltai
+max_indexes = [[-1 for i in range(N)] for j in range(T)]
 for t in range(1, T):
     for i in range(N):
+        max_delta = 0
+        max_index = -1
         for j in range(N):
-            delta = B[i][observations[t]] * A[j][i]
-            newVal = deltas[t-1][j] + \
-                (math.log(B[i][observations[t]]) if B[i]
-                 [observations[t]] > 0 else B[i][observations[t]]) + (math.log(A[j][i]) if A[j][i] > 0 else A[j][i])
-            # newVal = deltas[t-1][j]*delta
-            if deltas[t][i] < newVal:
-                maxIndexes[t][i] = j
-                deltas[t][i] = newVal
-print(deltas)
-print(maxIndexes)
-most_likely_states = [0]*T
-for j in range(N-1):
-    if deltas[T-1][j] > deltas[T-1][j+1]:
-        most_likely_states[T-1] = j
-    elif deltas[T-1][j] < deltas[T-1][j+1]:
-        most_likely_states[T-1] = j + 1
+            tmp_delta = A[j][i] * B[i][observations[t]] * delta[t - 1][j]
+            if tmp_delta > max_delta:
+                max_delta = tmp_delta
+                max_index = j
+        delta[t][i] = max_delta
+        max_indexes[t][i] = max_index
 
-for i in range(T-1, 1, -1):
-    most_likely_states[i-1] = maxIndexes[i][most_likely_states[i]]
+path = [-1] * T
+tmp_max = 0
+for i in range(N):
+    if delta[T - 1][i] > tmp_max:
+        path[T - 1] = i
+        tmp_max = delta[T - 1][i]
 
-for i in range(len(most_likely_states)):
-    print(most_likely_states[i], end=' ')
+for t in range(T-2, -1, -1):
+    path[t] = max_indexes[t + 1][path[t + 1]]
+
+for state in path:
+    print(state, end=' ')
