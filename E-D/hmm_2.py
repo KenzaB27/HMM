@@ -32,14 +32,20 @@ maxIndexes = [[-1 for i in range(N)] for j in range(T)]
 # compute delta0
 for i in range(N):
     delta = pi[i]*B[i][observations[0]]
-    deltas[0][i] = math.log(delta) if delta >0 else delta
+    deltas[0][i] = (math.log(pi[i]) if pi[i] > 0 else pi[i]) + \
+        (math.log(B[i][observations[0]]) if B[i]
+         [observations[0]] > 0 else B[i][observations[0]])
+    # deltas[0][i] = delta
 
 # compute deltai
 for t in range(1, T):
     for i in range(N):
         for j in range(N):
-            delta = B[i][observations[0]] * A[j][i]
-            newVal = deltas[t-1][j] + (math.log(delta) if delta > 0 else delta)
+            delta = B[i][observations[t]] * A[j][i]
+            newVal = deltas[t-1][j] + \
+                (math.log(B[i][observations[t]]) if B[i]
+                 [observations[t]] > 0 else B[i][observations[t]]) + (math.log(A[j][i]) if A[j][i] > 0 else A[j][i])
+            # newVal = deltas[t-1][j]*delta
             if deltas[t][i] < newVal:
                 maxIndexes[t][i] = j
                 deltas[t][i] = newVal
