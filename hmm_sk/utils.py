@@ -1,25 +1,28 @@
 import sys
 import math
 import numpy as np
+from difflib import SequenceMatcher
+
+SUFFICIENTLY_SMALL_NUMBER = 2**-52
+SUFFICIENTLY_BIG_NUMBER = 2**30
 
 def alpha_pass(A, B, pi, observations):
     N = len(A)
     M = len(B)
     T = len(observations)
 
-    # print('T', T)
     alpha = [[0 for i in range(N)] for j in range(T)]
     ct = [0] * T
     # compute alpha0
     for i in range(N):
-        # print('pi', pi[i], 'B', B[i][observations[0]], 'ct', ct[0])
         alpha[0][i] = pi[i]*B[i][observations[0]]
         ct[0] = ct[0] + alpha[0][i]
-    # print(ct)
+
     # scale alpha0
     if ct[0]==0:
-        ct[0] = 2**-52 + ct[0]
-    ct[0] = 1/ct[0]
+        ct[0] = SUFFICIENTLY_BIG_NUMBER
+    else:
+        ct[0]= 1/ct[0]
     for i in range(N):
         alpha[0][i] = ct[0]*alpha[0][i]
 
@@ -33,8 +36,9 @@ def alpha_pass(A, B, pi, observations):
 
         # scale alphat[i]
         if ct[t] == 0:
-            ct[t] = 2**-52 + ct[t]
-        ct[t] = 1/ct[t]
+            ct[t] = SUFFICIENTLY_BIG_NUMBER
+        else:
+            ct[t] = 1/ct[t]
         for i in range(N):
             alpha[t][i] = alpha[t][i] * ct[t]
 
@@ -43,7 +47,6 @@ def alpha_pass(A, B, pi, observations):
 
 def beta_pass(A, B, observations, ct):
     N = len(A)
-    M = len(B)
     T= len(observations)
     beta = [[0 for i in range(N)] for j in range(T)]
     # BetaT scaled by cT
@@ -65,7 +68,6 @@ def beta_pass(A, B, observations, ct):
 
 def sigma_pass(A, B, alpha, beta, observations):
     N = len(A)
-    M = len(B)
     T = len(observations)
     sigmat3 = [[[0 for i in range(N)] for j in range(N)] for k in range(T)]
     sigmat2 = [[0 for i in range(N)] for j in range(T)]
@@ -103,7 +105,7 @@ def reestimate(A, B, observations, pi, sigmat2, sigmat3):
             for t in range(T-1):
                 numer = numer + sigmat3[t][i][j]
             if denom == 0:
-                denom = 2**-52 + denom
+                denom = SUFFICIENTLY_SMALL_NUMBER + denom
             new_A[i][j] = numer / denom
 
     for i in range(N):
@@ -117,7 +119,7 @@ def reestimate(A, B, observations, pi, sigmat2, sigmat3):
                 if observations[t] == j:
                     numer = numer + sigmat2[t][i]
             if denom == 0:
-                denom = 2**-52 + denom
+                denom = SUFFICIENTLY_SMALL_NUMBER + denom
             new_B[i][j] = numer / denom
     return new_A, new_B, new_pi
 
@@ -132,8 +134,6 @@ def comp_log(ct):
 
 
 def baum_welch(A, B, pi, observations):
-    print(B)
-    print(pi)
     max_iters = 200
     old_log_prob = float('-inf')
     new_A = A.copy()
@@ -155,11 +155,7 @@ def baum_welch(A, B, pi, observations):
 
 def viterbi(A, B, pi, observations): 
     N = len(A)
-    M = len(B)
     T = len(observations)
-
-    deltas = [[0 for i in range(N)] for j in range(T)]
-    maxIndexes = [[-1 for i in range(N)] for j in range(T)]
 
     delta = [[0 for i in range(N)] for j in range(T)]
     for i in range(N):
@@ -168,7 +164,7 @@ def viterbi(A, B, pi, observations):
     max_indexes = [[-1 for i in range(N)] for j in range(T)]
     for t in range(1, T):
         for i in range(N):
-            max_delta = 0
+            max_delta = float('-inf')
             max_index = -1
             for j in range(N):
                 tmp_delta = A[j][i] * B[i][observations[t]] * delta[t - 1][j]
@@ -190,3 +186,9 @@ def viterbi(A, B, pi, observations):
 
     return path
 
+def match_pattern(seq_1, seq_2, min_pattern):
+    matcher = SequenceMatcher(None, seq_1, seq_2)
+    matches = matcher.find_longest_match(0, len(seq_1), 0, len(seq_2))
+    if matches.size >= min_pattern:
+        return seq_1[matches.a:matches.a + matches.size]
+    return None
