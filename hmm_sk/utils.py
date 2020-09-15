@@ -3,7 +3,7 @@ import math
 import numpy as np
 from difflib import SequenceMatcher
 
-SUFFICIENTLY_SMALL_NUMBER = 2**-52
+SUFFICIENTLY_SMALL_NUMBER = 10**-5
 SUFFICIENTLY_BIG_NUMBER = 2**30
 
 def alpha_pass(A, B, pi, observations):
@@ -19,10 +19,7 @@ def alpha_pass(A, B, pi, observations):
         ct[0] = ct[0] + alpha[0][i]
 
     # scale alpha0
-    if ct[0]==0:
-        ct[0] = SUFFICIENTLY_BIG_NUMBER
-    else:
-        ct[0]= 1/ct[0]
+    ct[0]= 1/ct[0]
     for i in range(N):
         alpha[0][i] = ct[0]*alpha[0][i]
 
@@ -35,10 +32,7 @@ def alpha_pass(A, B, pi, observations):
             ct[t] = ct[t] + alpha[t][i]
 
         # scale alphat[i]
-        if ct[t] == 0:
-            ct[t] = SUFFICIENTLY_BIG_NUMBER
-        else:
-            ct[t] = 1/ct[t]
+        ct[t] = 1/ct[t]
         for i in range(N):
             alpha[t][i] = alpha[t][i] * ct[t]
 
@@ -104,9 +98,12 @@ def reestimate(A, B, observations, pi, sigmat2, sigmat3):
             numer = 0
             for t in range(T-1):
                 numer = numer + sigmat3[t][i][j]
-            if denom == 0:
-                denom = SUFFICIENTLY_SMALL_NUMBER + denom
-            new_A[i][j] = numer / denom
+                
+            new_A[i][j] = numer / (denom + SUFFICIENTLY_SMALL_NUMBER)
+        
+        norm = sum(A[i])
+        for j in range(N):
+            A[i][j] /= norm
 
     for i in range(N):
         denom = 0
@@ -118,9 +115,13 @@ def reestimate(A, B, observations, pi, sigmat2, sigmat3):
             for t in range(T):
                 if observations[t] == j:
                     numer = numer + sigmat2[t][i]
-            if denom == 0:
-                denom = SUFFICIENTLY_SMALL_NUMBER + denom
-            new_B[i][j] = numer / denom
+                    
+            new_B[i][j] = numer / (denom + SUFFICIENTLY_SMALL_NUMBER)
+        
+        norm = sum(B[i])
+        for j in range(M):
+            B[i][j] /= norm
+
     return new_A, new_B, new_pi
 
 
@@ -134,7 +135,7 @@ def comp_log(ct):
 
 
 def baum_welch(A, B, pi, observations):
-    max_iters = 200
+    max_iters = 350
     old_log_prob = float('-inf')
     new_A = A.copy()
     new_B = B.copy()

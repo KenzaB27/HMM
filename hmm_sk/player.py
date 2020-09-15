@@ -9,26 +9,50 @@ import sys
 from collections import namedtuple
 from difflib import SequenceMatcher
 
-THRESHOLD_STEP = 50
+THRESHOLD_STEP = 100
+MIN_PATTERN_LENGTH = 10
+OBSERVATION_MULT = 1
 
 class PlayerControllerHMM(PlayerControllerHMMAbstract):
+    best_model_index = -1
+    unguessed_fish = set(range(N_FISH))
+
+    group_keys = set()
+    group_key = None
+    group_type = -1
+    current_model = None
+
+    def initialize_matrix(self, n, m):
+        matrix = []
+        for _ in range(n):
+            row = [1 / m] * (m)
+
+            for j in range(m):
+                rand_number = random.gauss(100, 50)
+                if rand_number < 0:
+                    rand_number *= -1
+                row[j] += rand_number
+            
+            norm = sum(row)
+            for j in range(m):
+                row[j] /= norm
+                
+            matrix.append(row)
+        return matrix
+
     def init_parameters(self):
         """
         In this function you should initialize the parameters you will need,
         such as the initialization of models, or fishes, among others.
         """
-        self.A = []
-        for i in range(N_SPECIES):
-            r = np.random.dirichlet(np.ones(N_SPECIES), size=1)[0]
-            for j in range(N_SPECIES):
-                r[j] *= 0.3
-            r[i] += 0.7
-            self.A.append(r)
+        random.seed(str(1))
+        self.A = self.initialize_matrix(N_SPECIES, N_SPECIES)
+        self.B = self.initialize_matrix(N_SPECIES, N_EMISSIONS)
+        self.pi = self.initialize_matrix(1, N_SPECIES)[0]
 
-        self.B = [np.random.dirichlet(np.ones(N_EMISSIONS), size=1)[0]
-                  for _ in range(N_SPECIES)]
-        self.pies = [np.random.dirichlet(np.ones(N_SPECIES), size=1)[
-            0] for _ in range(N_FISH)]
+        self.As = []
+        self.Bs = []
+        self.pies = []
         
         self.observations = [[] for _ in range(N_FISH)]
         self.groups = dict()
@@ -74,6 +98,11 @@ class PlayerControllerHMM(PlayerControllerHMMAbstract):
                 groups[pattern_i].add(key_i)
         return groups
 
+    def get_next_element(self, source_set):
+        try:
+            return source_set.pop()
+        except:
+            return None
 
     def guess(self, step, observations):
         """
@@ -89,70 +118,63 @@ class PlayerControllerHMM(PlayerControllerHMMAbstract):
                 self.observations[i].append(observations[i])
 
         if step == THRESHOLD_STEP:
-            self.groups = self.match_maximum(self.observations, 10, True)
+            self.groups = self.match_maximum(self.observations, MIN_PATTERN_LENGTH, True)
+            print(self.groups)
 
-            unseen_fish = set(range(N_FISH))
-            for value in self.groups.values():
-                self.training_set.append(self.observations[list(value)[0]])
-                for i in value:
-                    unseen_fish.discard(i)
+            # unseen_fish = set(range(N_FISH))
+            # for value in self.groups.values():
+            #     self.training_set.append(self.observations[list(value)[0]])
+            #     for i in value:
+            #         unseen_fish.discard(i)
 
-            for i in unseen_fish:
-                self.training_set.append(self.observations[i])
-            print(len(self.training_set))
+            # for i in unseen_fish:
+            #     self.training_set.append(self.observations[i])
+        
+        if step >= THRESHOLD_STEP + 1:
+            fish_index = -1
+
+            if self.group_key is None:
+                self.group_keys = set(self.groups.keys())
+                self.group_key = self.get_next_element(self.group_keys)
+
+            if not self.groups[self.group_key]:
+                self.group_key = self.get_next_element(self.group_keys)
+                self.group_type = -1
             
-            print(self.A)
-            print()
-            print(self.B)
-            print()
-            print(self.pies)
-            self.A, self.B, self.pies[0] = ut.baum_welch(
-                self.A, self.B, self.pies[0], self.training_set[0])
-        
-        # if step >= THRESHOLD_STEP + 1:
-            for i in range(1, len(self.training_set)):
-                self.A, self.B, self.pies[i] = ut.baum_welch(self.A, self.B, self.pies[i-1], self.training_set[i])
-            print()
-            print()
-            print(self.A)
-            print()
-            print(self.B)
-            print()
-            print(self.pies)
-        
-        if step == THRESHOLD_STEP + 1:
-            # for i in range(10):
-            path = ut.viterbi(self.A, self.B, self.pies[0], self.observations[0])
-            state = max(path, key=path.count)
-            print('fish', 0, path, 'state', state, file=sys.stderr)
+            if self.group_key is None:
+                fish_index = self.get_next_element(self.unguessed_fish)
 
+                if self.best_model_index != -1:
+                    path = ut.viterbi(self.current_model[0], self.current_model[1], self.initialize_matrix(1, N_SPECIES)[0], self.observations[fish_index])
+                    self.best_model_index = -1
+                    
+                    print(fish_index, max(path, key=path.count), path)
+                    return fish_index, max(path, key=path.count)
+            else:
+                print('Group', self.group_key)
+                fish_index = self.get_next_element(self.groups[self.group_key])
+                while fish_index not in self.unguessed_fish:
+                    fish_index = self.get_next_element(self.groups[self.group_key])
+                if not fish_index:
+                    print('No more fish in this group')
+                    return None
 
-            # i = None
-            # for key in self.groups:
-            #     if self.groups[key]:
-            #         i = self.groups[key].pop()
-            #         break
-            # state = 0
+                if self.group_type != -1:
+                    return fish_index, self.group_type
+                    
+            try:
+                more_observations = self.observations[fish_index] * OBSERVATION_MULT
+                A, B, pi = ut.baum_welch(
+                    self.initialize_matrix(N_SPECIES, N_SPECIES), self.initialize_matrix(N_SPECIES, N_EMISSIONS), self.initialize_matrix(1, N_SPECIES)[0], more_observations)
+                self.current_model = (A, B, pi)
+            except:
+                print('Failed to do baum welch for fish', fish_index)
+                return None
 
-            # print('Guessing fish', i, 'to be type', state)
-            return 0, state
-        if step == THRESHOLD_STEP + 2:
-            # for i in range(10):
-            path = ut.viterbi(self.A, self.B, self.pies[13], self.observations[13])
-            state = max(path, key=path.count)
-            print('fish', 13, path, 'state', state, file=sys.stderr)
+            path = ut.viterbi(self.current_model[0], self.current_model[1], self.current_model[2], self.observations[fish_index])
+            print(fish_index, np.argmax(self.current_model[2]), max(path, key=path.count), path)
 
-
-            # i = None
-            # for key in self.groups:
-            #     if self.groups[key]:
-            #         i = self.groups[key].pop()
-            #         break
-            # state = 0
-
-            # print('Guessing fish', i, 'to be type', state)
-            return 13, state
-
+            return fish_index, max(path, key=path.count)
         return None
 
     def reveal(self, correct, fish_id, true_type):
@@ -165,8 +187,7 @@ class PlayerControllerHMM(PlayerControllerHMMAbstract):
         :param true_type: the correct type of the fish
         :return:
         """
-        # if correct:
-        #     print('!! Correctly guessed that fish', fish_id, 'is type', true_type)
-        # else:
-        #     print('Failed to tell that fish', fish_id, 'is type', true_type)
-        print('Fish', fish_id, 'is type', true_type)
+        if correct:
+            self.best_model_index = fish_id
+            self.group_type = true_type
+        self.unguessed_fish.remove(fish_id)
