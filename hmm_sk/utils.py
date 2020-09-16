@@ -3,12 +3,32 @@ import math
 import numpy as np
 from difflib import SequenceMatcher
 
-SUFFICIENTLY_SMALL_NUMBER = 10**-5
+SUFFICIENTLY_SMALL_NUMBER = 10**-3
+VERY_SMALL_NUMBER = 2**-52
 SUFFICIENTLY_BIG_NUMBER = 2**30
+
+def alpha_pass_no_scaling(A, B, pi, observations):
+    N = len(A)
+    M = len(B[0])
+    T = len(observations)
+
+    alpha = [[0 for i in range(N)] for j in range(T)]
+    # compute alpha0
+    for i in range(N):
+        alpha[0][i] = pi[i]*B[i][observations[0]]
+
+    # compute alphati
+    for t in range(1, T):
+        for i in range(N):
+            for j in range(N):
+                alpha[t][i] = alpha[t][i] + alpha[t-1][j]*A[j][i]
+            alpha[t][i] = alpha[t][i] * B[i][observations[t]]
+
+    return alpha
 
 def alpha_pass(A, B, pi, observations):
     N = len(A)
-    M = len(B)
+    M = len(B[0])
     T = len(observations)
 
     alpha = [[0 for i in range(N)] for j in range(T)]
@@ -81,7 +101,7 @@ def sigma_pass(A, B, alpha, beta, observations):
 
 def reestimate(A, B, observations, pi, sigmat2, sigmat3):
     N = len(A)
-    M = len(B)
+    M = len(B[0])
     T = len(observations)
     new_A = A.copy()
     new_B = B.copy()
@@ -116,7 +136,7 @@ def reestimate(A, B, observations, pi, sigmat2, sigmat3):
                 if observations[t] == j:
                     numer = numer + sigmat2[t][i]
                     
-            new_B[i][j] = numer / (denom + SUFFICIENTLY_SMALL_NUMBER)
+                new_B[i][j] = numer / (denom + SUFFICIENTLY_SMALL_NUMBER)
         
         norm = sum(B[i])
         for j in range(M):
@@ -140,17 +160,20 @@ def baum_welch(A, B, pi, observations):
     new_A = A.copy()
     new_B = B.copy()
     new_pi = pi.copy()
-    for i in range(max_iters):
-        alpha, ct = alpha_pass(new_A, new_B, new_pi, observations)
-        log_prob = comp_log(ct)
-        beta = beta_pass(new_A, new_B, observations, ct)
-        if log_prob <= old_log_prob:
-            print('iter', i)
-            break
-        old_log_prob = log_prob
-        sigmat2, sigmat3 = sigma_pass(new_A, new_B, alpha, beta, observations)
-        new_A, new_B, new_pi = reestimate(
-            new_A, new_B, observations, new_pi, sigmat2, sigmat3)
+    try:
+        for i in range(max_iters):
+            alpha, ct = alpha_pass(new_A, new_B, new_pi, observations)
+            log_prob = comp_log(ct)
+            beta = beta_pass(new_A, new_B, observations, ct)
+            if log_prob <= old_log_prob:
+                # print('iter', i)
+                break
+            old_log_prob = log_prob
+            sigmat2, sigmat3 = sigma_pass(new_A, new_B, alpha, beta, observations)
+            new_A, new_B, new_pi = reestimate(
+                new_A, new_B, observations, new_pi, sigmat2, sigmat3)
+    except:
+        pass
     return new_A, new_B, new_pi
 
 
