@@ -166,7 +166,7 @@ def baum_welch(A, B, pi, observations):
             log_prob = comp_log(ct)
             beta = beta_pass(new_A, new_B, observations, ct)
             if log_prob <= old_log_prob:
-                # print('iter', i)
+                print('iter', i)
                 break
             old_log_prob = log_prob
             sigmat2, sigmat3 = sigma_pass(new_A, new_B, alpha, beta, observations)

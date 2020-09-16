@@ -15,6 +15,7 @@ MIN_PATTERN_LENGTH = 10
 N_STATES = N_SPECIES
 # OBSERVATION_MULT = 1
 
+
 class PlayerControllerHMM(PlayerControllerHMMAbstract):
     models = dict()
     last_fish_type = -1
