@@ -3,6 +3,7 @@
 from player_controller_hmm import PlayerControllerHMMAbstract
 from constants import *
 import random
+import math
 import numpy as np
 import utils as ut
 import sys
@@ -10,11 +11,8 @@ from collections import namedtuple
 from difflib import SequenceMatcher
 import operator
 
-THRESHOLD_STEP = 80
-MIN_PATTERN_LENGTH = 10
-N_STATES = N_SPECIES
-# OBSERVATION_MULT = 1
-
+THRESHOLD_STEP = 100
+N_STATES = 2
 
 class PlayerControllerHMM(PlayerControllerHMMAbstract):
     models = dict()
@@ -22,8 +20,8 @@ class PlayerControllerHMM(PlayerControllerHMMAbstract):
     last_fish_guessed = -1
     good_guess = False
     unguessed_fish = set(range(N_FISH))
+    # counter = 0
     group_observations = dict()
-    improvements = dict()
 
     def initialize_matrix(self, n, m):
         matrix = []
@@ -31,7 +29,7 @@ class PlayerControllerHMM(PlayerControllerHMMAbstract):
             row = [1 / m] * (m)
 
             for j in range(m):
-                rand_number = random.gauss(100, 50)
+                rand_number = random.gauss(0, 100)
                 if rand_number < 0:
                     rand_number *= -1
                 row[j] += rand_number
@@ -50,88 +48,39 @@ class PlayerControllerHMM(PlayerControllerHMMAbstract):
         """
         random.seed(str(1))
         self.observations = [[] for _ in range(N_FISH)]
-
         self.group_observations = {i: [] for i in range(N_SPECIES)}
 
-    def match_maximum(self, sequences, min_length, additional_round):
-        Fishes = namedtuple('Fishes', ['match_index', 'length', 'pattern'])
-        best_matches = {}
-        for i in range(len(sequences) - 1):
-            for j in range(i + 1, len(sequences)):
-                pattern = ut.match_pattern(sequences[i], sequences[j], min_length)
-                if not pattern:
-                    continue
-                
-                if i not in best_matches:
-                    best_matches[i] = Fishes(-1, 0, tuple())
-                if len(pattern) > best_matches[i].length:
-                    best_matches[i] = Fishes(j, len(pattern), tuple(pattern))
-
-        groups = {}
-        for key_i in best_matches:
-            key_j = best_matches[key_i].match_index
-            pattern_i = best_matches[key_i].pattern
-
-            if key_j not in best_matches or best_matches[key_j].length < best_matches[key_i].length:
-                if pattern_i not in groups:
-                    groups[pattern_i] = set()
-                groups[pattern_i] = groups[pattern_i].union([key_i, key_j])
-            elif additional_round:
-                pattern_j = best_matches[key_j].pattern
-                any_match = ut.match_pattern(pattern_i, pattern_j, min_length / 2)
-                if any_match:
-                    if pattern_j not in groups:
-                        groups[pattern_j] = set()
-                    groups[pattern_j] = groups[pattern_j].union([key_i, key_j, best_matches[key_j].match_index])
-                else:
-                    if pattern_i not in groups:
-                        groups[pattern_i] = set()
-                    groups[pattern_i].add(key_i)
-            else:
-                if pattern_i not in groups:
-                    groups[pattern_i] = set()
-                groups[pattern_i].add(key_i)
-        return groups
-
-
     def build_model(self, model_type):
-        if model_type in self.models:
-            self.models[model_type] = ut.baum_welch(
-                self.models[model_type][0],
-                self.models[model_type][1],
-                self.initialize_matrix(1, N_STATES)[0],
-                self.group_observations[model_type]
-            )
-        else:
-            self.models[model_type] = ut.baum_welch(
-                self.initialize_matrix(N_STATES, N_STATES),
-                self.initialize_matrix(N_STATES, N_EMISSIONS),
-                self.initialize_matrix(1, N_STATES)[0],
-                self.group_observations[model_type]
-            )
+        self.models[model_type] = ut.baum_welch(
+            self.initialize_matrix(N_STATES, N_STATES), self.initialize_matrix(N_STATES, N_EMISSIONS),
+            self.initialize_matrix(1, N_STATES)[0], self.group_observations[model_type])
 
-    def improve_model(self, observations, model_type):
-        # self.group_observations[model_type] = observations
-        # option 2
-        if not self.group_observations[model_type]:
-            self.group_observations[model_type] = observations
-        else:
-            l = len(self.group_observations[model_type])
-            self.group_observations[model_type] = self.group_observations[model_type][:10] + observations
-            
+    def improve_model(self, fish, model_type):
+        # print("Improving model", model_type, "with fish", fish)
+        self.group_observations[model_type] += self.observations[fish]
         self.build_model(model_type)
 
     def get_best_fish(self, model_type):
-        probs = {}
+        
+        log_probs = {}
 
         for fish in self.unguessed_fish:
-            alpha = ut.alpha_pass_no_scaling(self.models[model_type][0], self.models[model_type][1], self.initialize_matrix(1, N_STATES)[0], self.observations[fish])
-            prob = sum([ alpha[t][i] for t in range(len(self.observations[fish])) for i in range(N_STATES) ])
-            probs[fish] = prob
+            try: 
+                alpha, ct= ut.alpha_pass(self.models[model_type][0], self.models[model_type][1],
+                                        self.initialize_matrix(1, N_STATES)[0], self.observations[fish])
+                for c in ct: 
+                    c = math.log(c)
+                log_probs[fish] = -sum(ct)
+            except:
+                pass
 
-        probs = dict(sorted(probs.items(), key=operator.itemgetter(1), reverse=True))
-        best_fish = list(probs.keys())[0]
-        return best_fish, probs[best_fish]
+        if len(log_probs) > 0:                      
+            log_probs = dict(
+                sorted(log_probs.items(), key=operator.itemgetter(1), reverse=True))
+            best_fish = list(log_probs.keys())[0]
+        else: 
+            return -1, float('-inf')
+        return best_fish, log_probs[best_fish]
 
     def guess(self, step, observations):
         """
@@ -145,30 +94,31 @@ class PlayerControllerHMM(PlayerControllerHMMAbstract):
         for i in range(N_FISH):
             self.observations[i].append(observations[i])
 
-        if step == THRESHOLD_STEP:
-            return 0, random.randrange(N_SPECIES)
-        
+        if step == THRESHOLD_STEP: 
+            return random.sample(self.unguessed_fish, 1)[0], random.randrange(N_SPECIES)
+
         if step >= THRESHOLD_STEP + 1:
-            # if not self.models or not self.good_guess:
-            if self.last_fish_type not in self.improvements:
-                self.improvements[self.last_fish_type] = 0
-            if self.improvements[self.last_fish_type] < 4:
-                self.improve_model(self.observations[self.last_fish_guessed], self.last_fish_type)
-                self.improvements[self.last_fish_type] += 1
+            if self.last_fish_type not in self.models or not self.good_guess:
+                self.improve_model(self.last_fish_guessed, self.last_fish_type)
             
             best_fish = -1
             fish_type = -1
-            highest_prob = 0.0
-
+            highest_prob = float('-inf')
             for model in self.models:
                 fish, prob = self.get_best_fish(model)
+                # print('best_fish for model ', model, 'is', fish, 'highest_prob',prob, file=sys.stderr)
                 if prob > highest_prob:
                     best_fish = fish
                     fish_type = model
                     highest_prob = prob
 
+            if(best_fish == -1):
+                # print('No best Fish found')
+                return random.sample(self.unguessed_fish, 1)[0], random.randrange(N_SPECIES)
+
+            # print('Guess', best_fish, 'type', fish_type, file=sys.stderr)
             return best_fish, fish_type
-            
+
         return None
 
     def reveal(self, correct, fish_id, true_type):
@@ -181,8 +131,11 @@ class PlayerControllerHMM(PlayerControllerHMMAbstract):
         :param true_type: the correct type of the fish
         :return:
         """
+        # print('Result', 'True type', true_type, correct, file=sys.stderr)
         self.last_fish_type = true_type
         self.last_fish_guessed = fish_id
         self.unguessed_fish.remove(fish_id)
         self.good_guess = correct
-        print(len(self.unguessed_fish), file=sys.stderr)
+        # if not correct:
+        #     self.counter += 1
+        # print("there's ", len(self.unguessed_fish), "fishes left", file=sys.stderr)

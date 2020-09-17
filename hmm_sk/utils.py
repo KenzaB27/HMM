@@ -4,18 +4,24 @@ import numpy as np
 from difflib import SequenceMatcher
 
 SUFFICIENTLY_SMALL_NUMBER = 10**-3
-VERY_SMALL_NUMBER = 2**-52
-SUFFICIENTLY_BIG_NUMBER = 2**30
+VERY_SMALL_NUMBER = 10**-3
 
-def alpha_pass_no_scaling(A, B, pi, observations):
+def alpha_pass_test(A, B, pi, observations):
     N = len(A)
     M = len(B[0])
     T = len(observations)
 
     alpha = [[0 for i in range(N)] for j in range(T)]
+    ct = [0] * T
     # compute alpha0
     for i in range(N):
         alpha[0][i] = pi[i]*B[i][observations[0]]
+        ct[0] = ct[0] + alpha[0][i]
+
+    # scale alpha0
+    ct[0] = 1/(ct[0] + VERY_SMALL_NUMBER)
+    for i in range(N):
+        alpha[0][i] = ct[0]*alpha[0][i]
 
     # compute alphati
     for t in range(1, T):
@@ -23,8 +29,51 @@ def alpha_pass_no_scaling(A, B, pi, observations):
             for j in range(N):
                 alpha[t][i] = alpha[t][i] + alpha[t-1][j]*A[j][i]
             alpha[t][i] = alpha[t][i] * B[i][observations[t]]
+            ct[t] = ct[t] + alpha[t][i]
 
-    return alpha
+        # scale alphat[i]
+        ct[t] = 1/(ct[t] + VERY_SMALL_NUMBER)
+        for i in range(N):
+            alpha[t][i] = alpha[t][i] * ct[t]
+
+    return alpha[T-1], ct
+
+def alpha_pass_no_scaling(A, B, pi, observations):
+    N = len(A)
+    M = len(B[0])
+    T = len(observations)
+
+    alpha0 = [0] * N
+    c0 = 0
+    # compute alpha0
+    for i in range(N):
+        alpha0[i] = pi[i]*B[i][observations[0]]
+        c0 = c0 + alpha0[i]
+
+    # scale the alpha0 i 
+    c0 = 1/ (c0 + SUFFICIENTLY_SMALL_NUMBER)
+    for i in range(N):
+        alpha0[i] = alpha0[i] * c0
+    # compute alphati
+    alphat1 = alpha0.copy()
+    for t in range(1, T):
+        ct = 0
+        alphat = [0] * N
+        for i in range(N):
+            for j in range(N):
+                alphat[i] = alphat[i] + alphat1[j]*A[j][i]
+            alphat[i] = alphat[i] * B[i][observations[t]]
+            ct = ct + alphat[i]
+        ct = 1/(ct + SUFFICIENTLY_SMALL_NUMBER)
+        for i in range(N):
+            alphat[i] = ct * alphat[i]
+
+        alphat1 = alphat.copy()
+
+    for i in range(T):
+        alphat1[i] = math.log(alphat1[i])
+
+    return -np.prod(alphat1)
 
 def alpha_pass(A, B, pi, observations):
     N = len(A)
@@ -155,25 +204,24 @@ def comp_log(ct):
 
 
 def baum_welch(A, B, pi, observations):
-    max_iters = 350
+    max_iters = 400
     old_log_prob = float('-inf')
     new_A = A.copy()
     new_B = B.copy()
     new_pi = pi.copy()
-    try:
-        for i in range(max_iters):
-            alpha, ct = alpha_pass(new_A, new_B, new_pi, observations)
-            log_prob = comp_log(ct)
-            beta = beta_pass(new_A, new_B, observations, ct)
-            if log_prob <= old_log_prob:
-                print('iter', i)
-                break
-            old_log_prob = log_prob
-            sigmat2, sigmat3 = sigma_pass(new_A, new_B, alpha, beta, observations)
-            new_A, new_B, new_pi = reestimate(
-                new_A, new_B, observations, new_pi, sigmat2, sigmat3)
-    except:
-        pass
+
+    for i in range(max_iters):
+        alpha, ct = alpha_pass(new_A, new_B, new_pi, observations)
+        log_prob = comp_log(ct)
+        beta = beta_pass(new_A, new_B, observations, ct)
+        if log_prob <= old_log_prob:
+            # print('iter', i)
+            break
+        old_log_prob = log_prob
+        sigmat2, sigmat3 = sigma_pass(new_A, new_B, alpha, beta, observations)
+        new_A, new_B, new_pi = reestimate(
+            new_A, new_B, observations, new_pi, sigmat2, sigmat3)
+
     return new_A, new_B, new_pi
 
 
